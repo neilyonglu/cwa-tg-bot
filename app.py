@@ -1,7 +1,7 @@
 import os
 import asyncio
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer  # 🌟 內建極輕量伺服器套件
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
