@@ -32,13 +32,13 @@ def main():
         print(f"測試地點：{loc['name']}")
         print(f"  座標 -> 緯度: {loc['lat']}, 經度: {loc['lon']}")
 
-        img_bytes, station_name = service.get_marked_radar(loc["lat"], loc["lon"])
+        img_bytes, img_time_str = service.get_marked_radar(loc["lat"], loc["lon"])
 
         if img_bytes:
             filename = f"output/radar_{loc['name']}.png"
             with open(filename, "wb") as f:
                 f.write(img_bytes)
-            print(f"成功！雷達站: {station_name}，已存檔: {filename}")
+            print(f"成功！雷達圖時間: {img_time_str}，已存檔: {filename}")
         else:
             print(f"失敗！無法取得 {loc['name']} 的雷達圖。")
 

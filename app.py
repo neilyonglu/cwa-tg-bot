@@ -13,7 +13,7 @@ TG_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 # 初始化快捷選單
 async def post_init(application: Application):
     commands = [
-        BotCommand("current_location", "📍 目前位置"),
+        BotCommand("current_location", "📍 查詢現在位置雨量"),
     ]
     await application.bot.set_my_commands(commands)
     print("--- 左下角快捷選單已自動同步 ---")
@@ -45,13 +45,13 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # 2. 呼叫雷達服務產圖
         service = RadarService()
-        img_bytes, station_name = service.get_marked_radar(lat, lon)
+        img_bytes, img_time_str = service.get_marked_radar(lat, lon)
 
         if img_bytes:
             # 3. 發送圖片
             await update.message.reply_photo(
                 photo=img_bytes,
-                caption=f"✅ 標註完成！\n📡 使用雷達站：{station_name}\n📍 您的座標：({lat:.4f}, {lon:.4f})"
+                caption=f"🕒 雷達圖時間：{img_time_str}"
             )
             # 刪除處理中訊息
             await processing_msg.delete()

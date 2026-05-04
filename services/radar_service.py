@@ -49,26 +49,42 @@ class RadarService:
         """從 CWA S3 抓取雷達回波圖 (含快取機制)"""
         # 檢查快取
         if dataset_id in self._cache:
-            img_bytes, timestamp = self._cache[dataset_id]
+            img_bytes, timestamp, img_time_str = self._cache[dataset_id]
             age = time.time() - timestamp
             if age < CACHE_TTL:
                 print(f"  [快取命中] {dataset_id} (已快取 {age:.0f} 秒)")
-                return img_bytes
+                return img_bytes, img_time_str
 
         # 從 S3 抓取
         try:
-            s3_url = f"{CWA_S3_BASE_URL}/{dataset_id}.png"
-            print(f"  [S3] 下載 {s3_url}")
-            img_response = requests.get(s3_url)
+            s3_img_url = f"{CWA_S3_BASE_URL}/{dataset_id}.png"
+            s3_json_url = f"{CWA_S3_BASE_URL}/{dataset_id}.json"
+            
+            print(f"  [S3] 下載 {s3_img_url}")
+            img_response = requests.get(s3_img_url)
             img_response.raise_for_status()
 
             img_bytes = img_response.content
-            self._cache[dataset_id] = (img_bytes, time.time())
-            return img_bytes
+            
+            # 解析圖片產生時間 (從 S3 上的 JSON 取得官方時間)
+            img_time_str = "未知時間"
+            try:
+                json_response = requests.get(s3_json_url)
+                if json_response.status_code == 200:
+                    data = json_response.json()
+                    dt_str = data["cwaopendata"]["dataset"]["DateTime"]
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(dt_str)
+                    img_time_str = dt.strftime("%Y-%m-%d %H:%M")
+            except Exception as e:
+                print(f"  [時間解析失敗] {e}")
+
+            self._cache[dataset_id] = (img_bytes, time.time(), img_time_str)
+            return img_bytes, img_time_str
 
         except Exception as e:
             print(f"  [S3 失敗] {e}")
-            return None
+            return None, None
 
     # ─── 座標轉換 (AEQD 等距方位投影) ────────────────────
     def _latlon_to_pixel(self, center_lat, center_lon, user_lat, user_lon):
@@ -141,7 +157,7 @@ class RadarService:
     def get_marked_radar(self, lat, lon):
         """
         給定使用者座標，自動判斷區域、抓取雷達圖、標註位置並回傳。
-        回傳: (圖片 bytes, 站名) 或 (None, None)
+        回傳: (圖片 bytes, 圖片時間字串) 或 (None, None)
         """
         station = self.get_station_for_location(lat, lon)
         dataset_id = station["dataset_id"]
@@ -149,9 +165,9 @@ class RadarService:
 
         print(f"[雷達] 使用者座標 ({lat}, {lon}) → {station_name} ({dataset_id})")
 
-        img_bytes = self.fetch_radar_image(dataset_id)
+        img_bytes, img_time_str = self.fetch_radar_image(dataset_id)
         if not img_bytes:
             return None, None
 
         marked = self.mark_location(img_bytes, station, lat, lon)
-        return marked, station_name
+        return marked, img_time_str
