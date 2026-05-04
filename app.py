@@ -28,16 +28,39 @@ async def request_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+from services.radar_service import RadarService
+
 # 接收並處理座標
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_location = update.message.location
     lat = user_location.latitude
     lon = user_location.longitude
     
-    await update.message.reply_text(
-        f"✅ 成功接收座標！\n緯度：{lat}\n經度：{lon}\n\n(接下來我們會把這個座標拿去轉成行政區)",
+    # 1. 先回覆處理中訊息
+    processing_msg = await update.message.reply_text(
+        "⏳ 正在為您產生精準的雷達降雨標註圖，請稍候...",
         reply_markup=ReplyKeyboardRemove()
     )
+
+    try:
+        # 2. 呼叫雷達服務產圖
+        service = RadarService()
+        img_bytes, station_name = service.get_marked_radar(lat, lon)
+
+        if img_bytes:
+            # 3. 發送圖片
+            await update.message.reply_photo(
+                photo=img_bytes,
+                caption=f"✅ 標註完成！\n📡 使用雷達站：{station_name}\n📍 您的座標：({lat:.4f}, {lon:.4f})"
+            )
+            # 刪除處理中訊息
+            await processing_msg.delete()
+        else:
+            await processing_msg.edit_text("❌ 抱歉，目前無法取得氣象雷達圖資，請稍後再試。")
+            
+    except Exception as e:
+        print(f"處理雷達圖發生錯誤: {e}")
+        await processing_msg.edit_text("❌ 發生系統錯誤，請稍後再試。")
 
 # --- 3. 機器人啟動器 ---
 def run_tg_bot():

@@ -1,4 +1,6 @@
 python-telegram-bot>=20.0
 google-genai
 requests
-python-dotenv @ file:///croot/python-dotenv_1745610241282/work
+python-dotenv
+Pillow
+pyproj
