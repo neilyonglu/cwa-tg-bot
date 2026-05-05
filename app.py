@@ -6,8 +6,10 @@ from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardR
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from services.radar_service import RadarService
 
-# --- 1. 讀取金鑰 ---
+# --- 1. 初始化服務 ---
 TG_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+radar_service = RadarService()
+
 
 # --- 2. 機器人邏輯 ---
 
@@ -15,7 +17,7 @@ TG_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 async def post_init(application: Application):
     commands = [
         BotCommand("nearby", "📍 查詢現在位置雨量"),
-        BotCommand("radar", "📡 查詢區域雷達圖 (北中南)"),
+        BotCommand("radar", "📡 查詢區域雷達圖"),
     ]
     await application.bot.set_my_commands(commands)
     print("--- 左下角快捷選單已自動同步 ---")
@@ -44,8 +46,8 @@ async def request_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 區域雷達選單
 async def radar_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [KeyboardButton("北部雷達圖"), KeyboardButton("中部雷達圖")],
-        [KeyboardButton("南部雷達圖")]
+        [KeyboardButton("北部"), KeyboardButton("中部")],
+        [KeyboardButton("南部")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     await update.message.reply_text("請選擇要查詢的區域：", reply_markup=reply_markup)
@@ -54,9 +56,9 @@ async def radar_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_region_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     region_map = {
-        "北部雷達圖": "north",
-        "中部雷達圖": "central",
-        "南部雷達圖": "south"
+        "北部": "north",
+        "中部": "central",
+        "南部": "south"
     }
     
     if text not in region_map:
@@ -66,8 +68,7 @@ async def handle_region_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     processing_msg = await update.message.reply_text(f"⏳ 正在抓取{text}，請稍候...", reply_markup=ReplyKeyboardRemove())
     
     try:
-        service = RadarService()
-        img_bytes, img_time_str = await service.get_region_radar(region_key)
+        img_bytes, img_time_str = await radar_service.get_region_radar(region_key)
         
         if img_bytes:
             await update.message.reply_photo(
@@ -95,8 +96,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         # 2. 呼叫雷達服務產圖
-        service = RadarService()
-        img_bytes, img_time_str = await service.get_marked_radar(lat, lon)
+        img_bytes, img_time_str = await radar_service.get_marked_radar(lat, lon)
 
         if img_bytes:
             # 3. 發送圖片

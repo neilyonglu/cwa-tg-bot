@@ -10,8 +10,8 @@ import requests
 import time
 import io
 import asyncio
-from datetime import datetime, timedelta
-from PIL import Image, ImageDraw, ImageFont
+from datetime import datetime
+from PIL import Image, ImageDraw
 from pyproj import Transformer
 
 from config.settings import (
@@ -80,7 +80,6 @@ class RadarService:
                 if json_response.status_code == 200:
                     data = json_response.json()
                     dt_str = data["cwaopendata"]["dataset"]["DateTime"]
-                    from datetime import datetime
                     dt = datetime.fromisoformat(dt_str)
                     img_time_str = dt.strftime("%Y-%m-%d %H:%M")
             except Exception as e:
@@ -193,5 +192,13 @@ class RadarService:
         dataset_id = station["dataset_id"]
         
         img_bytes, img_time_str = await self.fetch_radar_image(dataset_id)
-        return img_bytes, img_time_str
+        if not img_bytes:
+            return None, None
+            
+        # 使用 Pillow 重新編碼，避免 Telegram API 拒絕原始的 S3 PNG
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        output = io.BytesIO()
+        img.save(output, format="PNG")
+        
+        return output.getvalue(), img_time_str
 

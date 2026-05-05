@@ -44,7 +44,7 @@ CACHE_TTL = 600  # 10 分鐘
 CWA_S3_BASE_URL = "https://cwaopendata.s3.ap-northeast-1.amazonaws.com/Observation"
 
 # 標記樣式
-MARKER_RADIUS = 4      # 紅色圓點半徑 (px)
+MARKER_RADIUS = 6      # 紅色圓點半徑 (px)
 MARKER_COLOR = "red"
 MARKER_OUTLINE = "white"
 MARKER_OUTLINE_WIDTH = 1
