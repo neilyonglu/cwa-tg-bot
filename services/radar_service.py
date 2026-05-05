@@ -9,6 +9,8 @@
 import requests
 import time
 import io
+import asyncio
+from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 from pyproj import Transformer
 
@@ -30,9 +32,13 @@ from config.settings import (
 
 class RadarService:
     """降雨雷達圖資服務"""
+    
+    # 類別變數 (Class Variable)：讓所有 RadarService 實例共用同一個快取
+    _cache = {}  # {dataset_id: (image_bytes, timestamp, img_time_str)}
+    _history = {} # {dataset_id: [(dt_obj, img_bytes, img_time_str), ...]} 存放歷史紀錄，最多 1 小時
 
     def __init__(self):
-        self._cache = {}  # {dataset_id: (image_bytes, timestamp)}
+        pass
 
     # ─── 區域判斷 ─────────────────────────────────────────
     def get_station_for_location(self, lat, lon):
@@ -45,10 +51,10 @@ class RadarService:
             return RADAR_STATIONS["south"]
 
     # ─── 圖資取得 (S3) ────────────────────────────────────
-    def fetch_radar_image(self, dataset_id):
+    def fetch_radar_image(self, dataset_id, force_refresh=False):
         """從 CWA S3 抓取雷達回波圖 (含快取機制)"""
         # 檢查快取
-        if dataset_id in self._cache:
+        if not force_refresh and dataset_id in self._cache:
             img_bytes, timestamp, img_time_str = self._cache[dataset_id]
             age = time.time() - timestamp
             if age < CACHE_TTL:
@@ -171,3 +177,143 @@ class RadarService:
 
         marked = self.mark_location(img_bytes, station, lat, lon)
         return marked, img_time_str
+
+    def get_region_radar(self, region_key):
+        """
+        抓取指定區域的完整雷達圖。
+        region_key: 'north', 'central', 'south'
+        回傳: (圖片 bytes, 圖片時間字串) 或 (None, None)
+        """
+        from config.settings import RADAR_STATIONS
+        if region_key not in RADAR_STATIONS:
+            return None, None
+            
+        station = RADAR_STATIONS[region_key]
+        dataset_id = station["dataset_id"]
+        
+        img_bytes, img_time_str = self.fetch_radar_image(dataset_id)
+        return img_bytes, img_time_str
+
+    # ─── 背景輪詢與 GIF 產生 ──────────────────────────────
+    async def _fetch_metadata(self, dataset_id):
+        """只抓取 JSON 判斷是否有新資料，節省頻寬"""
+        s3_json_url = f"{CWA_S3_BASE_URL}/{dataset_id}.json"
+        try:
+            # 使用 loop.run_in_executor 來避免 requests 阻塞 async loop
+            loop = asyncio.get_event_loop()
+            json_response = await loop.run_in_executor(None, requests.get, s3_json_url)
+            if json_response.status_code == 200:
+                data = json_response.json()
+                dt_str = data["cwaopendata"]["dataset"]["DateTime"]
+                return datetime.fromisoformat(dt_str)
+        except Exception as e:
+            print(f"  [Meta抓取失敗] {e}")
+        return None
+
+    @classmethod
+    async def start_background_task(cls):
+        """背景輪詢任務，每隔一段時間檢查是否有新圖檔"""
+        from config.settings import RADAR_STATIONS
+        print("--- 啟動雷達圖背景輪詢服務 ---")
+        
+        # 初始化 _history
+        for region_key, station in RADAR_STATIONS.items():
+            dataset_id = station["dataset_id"]
+            if dataset_id not in cls._history:
+                cls._history[dataset_id] = []
+
+        while True:
+            any_new = False
+            for region_key, station in RADAR_STATIONS.items():
+                dataset_id = station["dataset_id"]
+                
+                # 先抓取 JSON 判斷時間
+                latest_dt = await cls()._fetch_metadata(dataset_id)
+                if not latest_dt:
+                    continue
+                
+                history_list = cls._history[dataset_id]
+                
+                # 判斷是否需要抓取新圖
+                is_new = True
+                if history_list and history_list[-1][0] == latest_dt:
+                    is_new = False
+                
+                if is_new:
+                    any_new = True
+                    print(f"  [背景] 發現新圖 {dataset_id} 時間: {latest_dt.strftime('%H:%M')}")
+                    # 強制更新，避免被快取擋住
+                    img_bytes, img_time_str = cls().fetch_radar_image(dataset_id, force_refresh=True)
+                    if img_bytes:
+                        # 存入歷史
+                        history_list.append((latest_dt, img_bytes, img_time_str))
+                        
+                        # [除錯用] 將圖片存下來供檢查
+                        import os
+                        os.makedirs("output/debug_frames", exist_ok=True)
+                        debug_filename = f"output/debug_frames/{dataset_id}_{latest_dt.strftime('%H%M')}.png"
+                        with open(debug_filename, "wb") as f:
+                            f.write(img_bytes)
+                        print(f"  [背景] 已儲存除錯圖片: {debug_filename}")
+                        
+                        # 保持最多 1 小時 (大約 6 張)
+                        # 為保險起見，我們用時間過濾，踢掉超過 60 分鐘的
+                        cutoff_time = latest_dt - timedelta(minutes=65)
+                        cls._history[dataset_id] = [item for item in history_list if item[0] > cutoff_time]
+                        print(f"  [背景] {dataset_id} 歷史數量: {len(cls._history[dataset_id])}")
+            
+            # 決定等待時間
+            # 如果剛才有抓到任何新圖片，我們就等 1.5 分鐘 (90 秒)
+            # 因為官方大約 1分40秒 會更新一次
+            if any_new:
+                await asyncio.sleep(90)
+            else:
+                await asyncio.sleep(10)
+
+    def generate_gif(self, region_key, minutes):
+        """根據指定的過去時間 (分鐘)，產生動態 GIF"""
+        from config.settings import RADAR_STATIONS
+        if region_key not in RADAR_STATIONS:
+            return None
+            
+        dataset_id = RADAR_STATIONS[region_key]["dataset_id"]
+        history_list = self.__class__._history.get(dataset_id, [])
+        
+        if not history_list:
+            return None
+            
+        # 過濾出需要的時間範圍
+        latest_dt = history_list[-1][0]
+        cutoff_dt = latest_dt - timedelta(minutes=minutes + 1)
+        
+        frames = []
+        for item in history_list:
+            dt_obj, img_bytes, img_time_str = item
+            if dt_obj >= cutoff_dt:
+                img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                # 恢復縮小為 800x800 以利 Telegram 傳輸，並使用 NEAREST 保留真實色碼
+                img.thumbnail((800, 800), Image.Resampling.NEAREST)
+                frames.append(img)
+                
+        if len(frames) == 0:
+            return None
+            
+        if len(frames) == 1:
+            # 只有一張圖，直接回傳那張就好 (不需要 GIF)
+            output = io.BytesIO()
+            frames[0].save(output, format="PNG")
+            return output.getvalue(), False # False 代表不是 GIF
+            
+        # 多張圖片，合成 GIF
+        output = io.BytesIO()
+        frames[0].save(
+            output,
+            format="GIF",
+            save_all=True,
+            append_images=frames[1:],
+            duration=500, # 每張顯示 0.5 秒
+            loop=0, # 0 代表無限迴圈
+            optimize=True # 啟用檔案最佳化
+        )
+        return output.getvalue(), True # True 代表是 GIF
+
