@@ -4,6 +4,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from services.radar_service import RadarService
 
 # --- 1. 讀取金鑰 ---
 TG_TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -43,8 +44,8 @@ async def request_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 區域雷達選單
 async def radar_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [KeyboardButton("🟦 北部雷達圖"), KeyboardButton("🟩 中部雷達圖")],
-        [KeyboardButton("🟧 南部雷達圖")]
+        [KeyboardButton("北部雷達圖"), KeyboardButton("中部雷達圖")],
+        [KeyboardButton("南部雷達圖")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     await update.message.reply_text("請選擇要查詢的區域：", reply_markup=reply_markup)
@@ -53,9 +54,9 @@ async def radar_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_region_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     region_map = {
-        "🟦 北部雷達圖": "north",
-        "🟩 中部雷達圖": "central",
-        "🟧 南部雷達圖": "south"
+        "北部雷達圖": "north",
+        "中部雷達圖": "central",
+        "南部雷達圖": "south"
     }
     
     if text not in region_map:
@@ -65,7 +66,6 @@ async def handle_region_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
     processing_msg = await update.message.reply_text(f"⏳ 正在抓取{text}，請稍候...", reply_markup=ReplyKeyboardRemove())
     
     try:
-        from services.radar_service import RadarService
         service = RadarService()
         img_bytes, img_time_str = await service.get_region_radar(region_key)
         
