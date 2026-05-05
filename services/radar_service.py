@@ -51,7 +51,7 @@ class RadarService:
             return RADAR_STATIONS["south"]
 
     # ─── 圖資取得 (S3) ────────────────────────────────────
-    def fetch_radar_image(self, dataset_id, force_refresh=False):
+    async def fetch_radar_image(self, dataset_id, force_refresh=False):
         """從 CWA S3 抓取雷達回波圖 (含快取機制)"""
         # 檢查快取
         if not force_refresh and dataset_id in self._cache:
@@ -67,7 +67,8 @@ class RadarService:
             s3_json_url = f"{CWA_S3_BASE_URL}/{dataset_id}.json"
             
             print(f"  [S3] 下載 {s3_img_url}")
-            img_response = requests.get(s3_img_url)
+            loop = asyncio.get_event_loop()
+            img_response = await loop.run_in_executor(None, requests.get, s3_img_url)
             img_response.raise_for_status()
 
             img_bytes = img_response.content
@@ -75,7 +76,7 @@ class RadarService:
             # 解析圖片產生時間 (從 S3 上的 JSON 取得官方時間)
             img_time_str = "未知時間"
             try:
-                json_response = requests.get(s3_json_url)
+                json_response = await loop.run_in_executor(None, requests.get, s3_json_url)
                 if json_response.status_code == 200:
                     data = json_response.json()
                     dt_str = data["cwaopendata"]["dataset"]["DateTime"]
@@ -160,7 +161,7 @@ class RadarService:
         return output.getvalue()
 
     # ─── 主要入口 ─────────────────────────────────────────
-    def get_marked_radar(self, lat, lon):
+    async def get_marked_radar(self, lat, lon):
         """
         給定使用者座標，自動判斷區域、抓取雷達圖、標註位置並回傳。
         回傳: (圖片 bytes, 圖片時間字串) 或 (None, None)
@@ -171,7 +172,7 @@ class RadarService:
 
         print(f"[雷達] 使用者座標 ({lat}, {lon}) → {station_name} ({dataset_id})")
 
-        img_bytes, img_time_str = self.fetch_radar_image(dataset_id)
+        img_bytes, img_time_str = await self.fetch_radar_image(dataset_id)
         if not img_bytes:
             return None, None
 
@@ -243,7 +244,7 @@ class RadarService:
                     any_new = True
                     print(f"  [背景] 發現新圖 {dataset_id} 時間: {latest_dt.strftime('%H:%M')}")
                     # 強制更新，避免被快取擋住
-                    img_bytes, img_time_str = cls().fetch_radar_image(dataset_id, force_refresh=True)
+                    img_bytes, img_time_str = await cls().fetch_radar_image(dataset_id, force_refresh=True)
                     if img_bytes:
                         # 存入歷史
                         history_list.append((latest_dt, img_bytes, img_time_str))
@@ -313,7 +314,8 @@ class RadarService:
             append_images=frames[1:],
             duration=500, # 每張顯示 0.5 秒
             loop=0, # 0 代表無限迴圈
-            optimize=True # 啟用檔案最佳化
+            optimize=True, # 啟用檔案最佳化
+            disposal=2     # 確保每一幀獨立顯示，不產生殘影
         )
         return output.getvalue(), True # True 代表是 GIF
 

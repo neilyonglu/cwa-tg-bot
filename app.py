@@ -89,7 +89,7 @@ async def handle_time_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         
         if minutes == 0:
             # 只拿單張
-            img_bytes, img_time_str = service.get_region_radar(region)
+            img_bytes, img_time_str = await service.get_region_radar(region)
             if img_bytes:
                 await query.message.reply_photo(
                     photo=img_bytes,
@@ -105,10 +105,16 @@ async def handle_time_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 img_bytes, is_gif = result
                 caption = f"📡 {region_zh}雷達動態圖 (過去 {minutes} 分鐘)" if is_gif else f"📡 {region_zh}雷達圖\n⚠️ 歷史圖片不足，回傳單張圖片。"
                 
+                import io
                 if is_gif:
-                    await query.message.reply_animation(animation=img_bytes, caption=caption)
+                    # 包裝成帶有檔名的 BytesIO，避免 Telegram 辨識為 application.octet-stream
+                    gif_file = io.BytesIO(img_bytes)
+                    gif_file.name = "radar_animation.gif"
+                    await query.message.reply_animation(animation=gif_file, caption=caption)
                 else:
-                    await query.message.reply_photo(photo=img_bytes, caption=caption)
+                    img_file = io.BytesIO(img_bytes)
+                    img_file.name = "radar_static.png"
+                    await query.message.reply_photo(photo=img_file, caption=caption)
                     
                 await query.message.delete()
             else:
@@ -133,7 +139,7 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # 2. 呼叫雷達服務產圖
         service = RadarService()
-        img_bytes, img_time_str = service.get_marked_radar(lat, lon)
+        img_bytes, img_time_str = await service.get_marked_radar(lat, lon)
 
         if img_bytes:
             # 3. 發送圖片
