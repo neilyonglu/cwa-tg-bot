@@ -1,6 +1,7 @@
 import os
 import asyncio
 import threading
+import requests
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -9,6 +10,11 @@ from services.radar_service import RadarService
 # --- 1. 初始化服務 ---
 TG_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 radar_service = RadarService()
+GEOCODE_URL = "https://nominatim.openstreetmap.org/search"
+PLACE_FALLBACKS = {
+    "台北101": (25.033964, 121.564468),
+    "taipei 101": (25.033964, 121.564468),
+}
 
 
 # --- 2. 機器人邏輯 ---
@@ -18,6 +24,7 @@ async def post_init(application: Application):
     commands = [
         BotCommand("nearby", "📍 查詢現在位置雨量"),
         BotCommand("radar", "📡 查詢區域雷達圖"),
+        BotCommand("place", "🔎 輸入地點查雨勢"),
     ]
     await application.bot.set_my_commands(commands)
     print("--- 左下角快捷選單已自動同步 ---")
@@ -52,6 +59,72 @@ async def radar_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     await update.message.reply_text("請選擇要查詢的區域：", reply_markup=reply_markup)
 
+
+def resolve_place_to_latlon(place_name: str):
+    """將地點文字轉成經緯度，優先 geocoding，失敗時用本地 fallback。"""
+    query = (place_name or "").strip()
+    if not query:
+        return None, None, "", "not_found"
+
+    try:
+        response = requests.get(
+            GEOCODE_URL,
+            params={
+                "q": query,
+                "format": "jsonv2",
+                "limit": 1,
+                "countrycodes": "tw",
+            },
+            headers={"User-Agent": "cwa-tg-bot/1.0"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        results = response.json()
+        if results:
+            first = results[0]
+            lat = float(first["lat"])
+            lon = float(first["lon"])
+            display_name = first.get("display_name", query)
+            return lat, lon, display_name, "geocoding"
+    except Exception as exc:
+        print(f"[Geocoding 失敗] {exc}")
+
+    fallback_key = query.lower()
+    if fallback_key in PLACE_FALLBACKS:
+        lat, lon = PLACE_FALLBACKS[fallback_key]
+        return lat, lon, query, "fallback"
+
+    return None, None, query, "not_found"
+
+
+async def request_place(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["awaiting_place_input"] = True
+    await update.message.reply_text(
+        "請輸入要查詢的地點名稱（例如：台北101）。",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+async def _send_place_radar(update: Update, lat: float, lon: float, place_label: str):
+    processing_msg = await update.message.reply_text(
+        f"⏳ 正在查詢「{place_label}」的降雨資訊，請稍候...",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    try:
+        img_bytes, img_time_str, rain_desc = await radar_service.get_marked_radar(lat, lon)
+        if img_bytes:
+            rain_desc = rain_desc or "☀️ 目前無明顯降雨"
+            await update.message.reply_photo(
+                photo=img_bytes,
+                caption=f"📍 地點：{place_label}\n🕒 時間：{img_time_str}\n{rain_desc}",
+            )
+            await processing_msg.delete()
+        else:
+            await processing_msg.edit_text("❌ 抱歉，目前無法取得該地點的雷達圖資，請稍後再試。")
+    except Exception as e:
+        print(f"處理地點雷達發生錯誤: {e}")
+        await processing_msg.edit_text("❌ 發生系統錯誤，請稍後再試。")
+
 # 處理區域選擇
 async def handle_region_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -61,26 +134,40 @@ async def handle_region_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "南部": "south"
     }
     
-    if text not in region_map:
-        return # 不處理非按鈕文字
+    if text in region_map:
+        region_key = region_map[text]
+        processing_msg = await update.message.reply_text(f"⏳ 正在抓取{text}，請稍候...", reply_markup=ReplyKeyboardRemove())
         
-    region_key = region_map[text]
-    processing_msg = await update.message.reply_text(f"⏳ 正在抓取{text}，請稍候...", reply_markup=ReplyKeyboardRemove())
-    
-    try:
-        img_bytes, img_time_str = await radar_service.get_region_radar(region_key)
-        
-        if img_bytes:
-            await update.message.reply_photo(
-                photo=img_bytes,
-                caption=f"📡 {text}\n🕒 時間：{img_time_str}"
+        try:
+            img_bytes, img_time_str = await radar_service.get_region_radar(region_key)
+            
+            if img_bytes:
+                await update.message.reply_photo(
+                    photo=img_bytes,
+                    caption=f"📡 {text}\n🕒 時間：{img_time_str}"
+                )
+                await processing_msg.delete()
+            else:
+                await processing_msg.edit_text("❌ 無法取得該區域雷達圖，請稍後再試。")
+        except Exception as e:
+            print(f"處理區域雷達發生錯誤: {e}")
+            await processing_msg.edit_text("❌ 發生系統錯誤，請稍後再試。")
+        return
+
+    if context.user_data.get("awaiting_place_input"):
+        lat, lon, display_name, _ = resolve_place_to_latlon(text)
+        if lat is None or lon is None:
+            await update.message.reply_text(
+                f"❌ 找不到「{text}」這個地點，請重新輸入更完整的地名（例如：台北101）。"
             )
-            await processing_msg.delete()
-        else:
-            await processing_msg.edit_text("❌ 無法取得該區域雷達圖，請稍後再試。")
-    except Exception as e:
-        print(f"處理區域雷達發生錯誤: {e}")
-        await processing_msg.edit_text("❌ 發生系統錯誤，請稍後再試。")
+            return
+
+        context.user_data["awaiting_place_input"] = False
+        await _send_place_radar(update, lat, lon, display_name)
+        return
+        
+    # 非區域按鈕、也非 place 查詢流程中的輸入，忽略。
+    return
 
 # 接收並處理座標
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -123,6 +210,7 @@ def run_tg_bot():
     
     app.add_handler(CommandHandler("nearby", request_location))
     app.add_handler(CommandHandler("radar", radar_menu))
+    app.add_handler(CommandHandler("place", request_place))
     app.add_handler(MessageHandler(filters.LOCATION, handle_location))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_region_text))
     
