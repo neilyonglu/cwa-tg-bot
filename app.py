@@ -10,7 +10,9 @@ from services.radar_service import RadarService
 # --- 1. 初始化服務 ---
 TG_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 radar_service = RadarService()
-GEOCODE_URL = "https://nominatim.openstreetmap.org/search"
+GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+GOOGLE_MAPS_API_KEY = os.environ.get("GEMINI_API_KEY")
+
 PLACE_FALLBACKS = {
     "台北101": (25.033964, 121.564468),
     "taipei 101": (25.033964, 121.564468),
@@ -25,6 +27,7 @@ async def post_init(application: Application):
         BotCommand("nearby", "📍 查詢現在位置雨量"),
         BotCommand("radar", "📡 查詢區域雷達圖"),
         BotCommand("place", "🔎 輸入地點查雨勢"),
+        BotCommand("manual", "📖 使用說明書"),
     ]
     await application.bot.set_my_commands(commands)
     print("--- 左下角快捷選單已自動同步 ---")
@@ -60,34 +63,60 @@ async def radar_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("請選擇要查詢的區域：", reply_markup=reply_markup)
 
 
+async def manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = (
+        "📖 **氣象雷達機器人 使用說明書**\n\n"
+        "本機器人串接中央氣象署 (CWA) 即時圖資，提供精準的降雨趨勢查詢。\n\n"
+        "📍 **功能介紹：**\n"
+        "1. `/nearby` - **查詢目前位置**\n"
+        "   發送你的 GPS 座標，機器人會回傳以你為中心的雷達圖，並自動分析降雨強度。\n\n"
+        "2. `/place` - **查詢指定地點**\n"
+        "   輸入地名或地址（例如：`台北101`、`承德路二段215號`），系統會精準定位並顯示當地即時雨勢。\n\n"
+        "3. `/radar` - **大區域雷達圖**\n"
+        "   快速切換查看「北部、中部、南部」的大範圍降雨分佈。\n\n"
+        "🖼️ **結果解讀：**\n"
+        "• **紅色圓點**：代表你查詢的確切目標位置。\n"
+        "• **彩色區塊**：代表降雨強度（綠色 < 藍色 < 黃色 < 紅色 < 紫色）。\n"
+        "• **分析文字**：機器人會自動告訴你目前是「無明顯降雨」或有降雨風險。\n\n"
+        "⚠️ **小提醒：**\n"
+        "• 氣象署圖資約每 2-10 分鐘更新一次。\n"
+        "• 若地點搜尋不到，請嘗試輸入更完整的行政區名稱。"
+    )
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
 def resolve_place_to_latlon(place_name: str):
-    """將地點文字轉成經緯度，優先 geocoding，失敗時用本地 fallback。"""
+    """將地點文字轉成經緯度，優先使用 Google Maps，失敗時用本地 fallback。"""
     query = (place_name or "").strip()
     if not query:
         return None, None, "", "not_found"
 
-    try:
-        response = requests.get(
-            GEOCODE_URL,
-            params={
-                "q": query,
-                "format": "jsonv2",
-                "limit": 1,
-                "countrycodes": "tw",
-            },
-            headers={"User-Agent": "cwa-tg-bot/1.0"},
-            timeout=8,
-        )
-        response.raise_for_status()
-        results = response.json()
-        if results:
-            first = results[0]
-            lat = float(first["lat"])
-            lon = float(first["lon"])
-            display_name = first.get("display_name", query)
-            return lat, lon, display_name, "geocoding"
-    except Exception as exc:
-        print(f"[Geocoding 失敗] {exc}")
+    if not GOOGLE_MAPS_API_KEY:
+        print("⚠️ 警告：未設定 GEMINI_API_KEY，跳過 Google 查詢。")
+    else:
+        try:
+            response = requests.get(
+                GOOGLE_GEOCODE_URL,
+                params={
+                    "address": query,
+                    "key": GOOGLE_MAPS_API_KEY,
+                    "language": "zh-TW",
+                    "region": "tw"
+                },
+                timeout=8,
+            )
+            response.raise_for_status()
+            data = response.json()
+            if data.get("status") == "OK" and data.get("results"):
+                result = data["results"][0]
+                lat = float(result["geometry"]["location"]["lat"])
+                lon = float(result["geometry"]["location"]["lng"])
+                display_name = result.get("formatted_address", query)
+                return lat, lon, display_name, "google"
+            elif data.get("status") != "ZERO_RESULTS":
+                print(f"[Google API 錯誤] Status: {data.get('status')}")
+        except Exception as exc:
+            print(f"[Google Geocoding 失敗] {exc}")
 
     fallback_key = query.lower()
     if fallback_key in PLACE_FALLBACKS:
@@ -211,6 +240,7 @@ def run_tg_bot():
     app.add_handler(CommandHandler("nearby", request_location))
     app.add_handler(CommandHandler("radar", radar_menu))
     app.add_handler(CommandHandler("place", request_place))
+    app.add_handler(CommandHandler("manual", manual))
     app.add_handler(MessageHandler(filters.LOCATION, handle_location))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_region_text))
     
