@@ -27,6 +27,8 @@ from config.settings import (
     MARKER_OUTLINE,
     MARKER_OUTLINE_WIDTH,
     CROP_SIZE,
+    DBZ_COLOR_SCALE,
+    RADAR_BACKUP_ORDER,
 )
 
 
@@ -38,7 +40,7 @@ class RadarService:
 
 
     def __init__(self):
-        pass
+        self._dbz_color_to_value = {color: dbz for dbz, color in enumerate(DBZ_COLOR_SCALE)}
 
     # ─── 區域判斷 ─────────────────────────────────────────
     def get_station_for_location(self, lat, lon):
@@ -121,6 +123,61 @@ class RadarService:
 
         return px_x, px_y
 
+    def _match_dbz_from_color(self, rgb):
+        """將像素色碼映射為 dBZ 值，優先精確匹配，再做最近色近似匹配。"""
+        if rgb in self._dbz_color_to_value:
+            return self._dbz_color_to_value[rgb]
+
+        nearest_dbz = None
+        nearest_dist = None
+        r, g, b = rgb
+        for dbz, color in enumerate(DBZ_COLOR_SCALE):
+            cr, cg, cb = color
+            dist = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2
+            if nearest_dist is None or dist < nearest_dist:
+                nearest_dist = dist
+                nearest_dbz = dbz
+
+        # PNG 理論上應接近精確色碼，保守給一個很小的容差
+        if nearest_dist is not None and nearest_dist <= 100:
+            return nearest_dbz
+        return None
+
+    def _analyze_point_dbz(self, img_bytes, station, user_lat, user_lon):
+        """分析指定站台雷達圖中使用者座標點的 dBZ。"""
+        px_x, px_y = self._latlon_to_pixel(
+            station["center_lat"],
+            station["center_lon"],
+            user_lat,
+            user_lon,
+        )
+
+        in_range = 0 <= px_x < IMAGE_SIZE and 0 <= px_y < IMAGE_SIZE
+        if not in_range:
+            return None, False, False
+
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        x = max(0, min(IMAGE_SIZE - 1, int(round(px_x))))
+        y = max(0, min(IMAGE_SIZE - 1, int(round(px_y))))
+        pixel = img.getpixel((x, y))
+        dbz = self._match_dbz_from_color(pixel)
+
+        # 底色視為單站盲區候選：在站台可視範圍內但回波為 0 dBZ
+        is_blind_zone = dbz == 0
+        return dbz, True, is_blind_zone
+
+    def _dbz_to_human_text(self, dbz):
+        """將 dBZ 轉成使用者可讀的雨勢描述。"""
+        if dbz is None or dbz <= 0:
+            return "☀️ 目前無明顯降雨"
+        if 1 <= dbz < 15:
+            return "☁️ 雲系籠罩，注意微雨"
+        if 15 <= dbz < 30:
+            return "🌧️ 正在下雨（一般雨勢）"
+        if 30 <= dbz < 45:
+            return "⛈️ 雨勢明顯，外出請注意安全"
+        return "⚠️ 強降雨警告，請遠離低窪地區"
+
     # ─── 圖片標註 ─────────────────────────────────────────
     def mark_location(self, img_bytes, station, user_lat, user_lon):
         """在雷達圖上標註使用者位置 (紅色圓點)，並裁切回傳"""
@@ -173,10 +230,39 @@ class RadarService:
         img_bytes, img_time_str = await self.fetch_radar_image(dataset_id)
             
         if not img_bytes:
-            return None, None
+            return None, None, None
 
-        marked = self.mark_location(img_bytes, station, lat, lon)
-        return marked, img_time_str
+        primary_dbz, in_range, is_blind_zone = self._analyze_point_dbz(img_bytes, station, lat, lon)
+        best_station = station
+        best_img_bytes = img_bytes
+        best_img_time = img_time_str
+        best_dbz = primary_dbz if primary_dbz is not None else -1
+
+        if in_range and is_blind_zone:
+            primary_region_key = next(
+                (key for key, info in RADAR_STATIONS.items() if info["dataset_id"] == dataset_id),
+                None,
+            )
+            backup_keys = RADAR_BACKUP_ORDER.get(primary_region_key, [])
+            for backup_key in backup_keys:
+                backup_station = RADAR_STATIONS[backup_key]
+                backup_img_bytes, backup_img_time = await self.fetch_radar_image(backup_station["dataset_id"])
+                if not backup_img_bytes:
+                    continue
+                backup_dbz, backup_in_range, _ = self._analyze_point_dbz(
+                    backup_img_bytes, backup_station, lat, lon
+                )
+                if backup_in_range and backup_dbz is not None and backup_dbz > best_dbz:
+                    best_station = backup_station
+                    best_img_bytes = backup_img_bytes
+                    best_img_time = backup_img_time
+                    best_dbz = backup_dbz
+
+        marked = self.mark_location(best_img_bytes, best_station, lat, lon)
+        if not marked:
+            return None, None, None
+
+        return marked, best_img_time, self._dbz_to_human_text(best_dbz)
 
     async def get_region_radar(self, region_key):
         """

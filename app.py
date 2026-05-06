@@ -96,13 +96,14 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         # 2. 呼叫雷達服務產圖
-        img_bytes, img_time_str = await radar_service.get_marked_radar(lat, lon)
+        img_bytes, img_time_str, rain_desc = await radar_service.get_marked_radar(lat, lon)
 
         if img_bytes:
+            rain_desc = rain_desc or "☀️ 目前無明顯降雨"
             # 3. 發送圖片
             await update.message.reply_photo(
                 photo=img_bytes,
-                caption=f"🕒 時間：{img_time_str}"
+                caption=f"🕒 時間：{img_time_str}\n{rain_desc}"
             )
             # 刪除處理中訊息
             await processing_msg.delete()
