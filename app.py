@@ -118,7 +118,7 @@ async def manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1. `/nearby` - **查詢目前位置**\n"
         "   發送你的 GPS 座標，機器人會回傳以你為中心的雷達圖，並自動分析降雨強度。\n\n"
         "2. `/place` - **查詢指定地點**\n"
-        "   輸入地名或地址（例如：`台北101`、`承德路二段215號`），系統會精準定位並顯示當地即時雨勢。\n\n"
+        "   輸入地名或地址（例如：`台北101`），系統會精準定位並顯示當地即時雨勢。\n\n"
         "3. `/radar` - **大區域雷達圖**\n"
         "   快速切換查看「北部、中部、南部」的大範圍降雨分佈。\n\n"
         "4. `/fav` - **我的喜愛點**\n"
@@ -178,7 +178,7 @@ def resolve_place_to_latlon(place_name: str):
 async def request_place(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["awaiting_place_input"] = True
     await update.message.reply_text(
-        "請輸入要查詢的地點名稱（例如：台北101）。",
+        "請輸入要查詢的地點或地址。",
         reply_markup=ReplyKeyboardRemove(),
     )
 
@@ -224,6 +224,10 @@ async def _send_place_radar(
     except Exception as e:
         print(f"處理地點雷達發生錯誤: {e}")
         await processing_msg.edit_text("❌ 發生系統錯誤，請稍後再試。")
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    print(f"[ERROR] 發生例外：{context.error}")
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -404,6 +408,7 @@ def run_tg_bot():
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.LOCATION, handle_location))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_region_text))
+    app.add_error_handler(error_handler)
 
     print("--- 氣象機器人已在背景啟動 ---")
     app.run_polling(drop_pending_updates=True, stop_signals=None)
