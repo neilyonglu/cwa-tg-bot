@@ -23,9 +23,9 @@ GOOGLE_MAPS_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 BOT_COMMANDS = [
     BotCommand("start", "🌦 開始使用"),
-    BotCommand("fav", "⭐ 我的喜愛點"),
     BotCommand("nearby", "📍 查詢現在位置雨量"),
     BotCommand("place", "🔎 輸入地點查雨勢"),
+    BotCommand("fav", "⭐ 我的喜愛點"),
     BotCommand("radar", "📡 查詢區域雷達圖"),
     BotCommand("feedback", "💬 提供回饋"),
     BotCommand("manual", "📖 使用說明書"),
