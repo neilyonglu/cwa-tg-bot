@@ -16,7 +16,6 @@ PLACE_FALLBACKS = {
 
 
 def resolve_place_to_latlon(place_name: str):
-    """將地點文字轉成經緯度。優先使用 Google Maps，失敗時用本地 fallback。"""
     query = (place_name or "").strip() or "台北101"
 
     if not GOOGLE_MAPS_API_KEY:

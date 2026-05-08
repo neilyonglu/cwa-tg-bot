@@ -14,128 +14,29 @@ from telegram.ext import (
 from services.radar_service import RadarService
 from services import db_service
 
-# --- 1. 初始化服務 ---
+# ── 常數 ────────────────────────────────────────────────────────────
+
 TG_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-radar_service = RadarService()
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "6501701404")
 GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 GOOGLE_MAPS_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-PLACE_FALLBACKS = {
-    "台北101": (25.033964, 121.564468),
-    "taipei 101": (25.033964, 121.564468),
-}
+BOT_COMMANDS = [
+    BotCommand("start", "🌦 開始使用"),
+    BotCommand("fav", "⭐ 我的喜愛點"),
+    BotCommand("nearby", "📍 查詢現在位置雨量"),
+    BotCommand("place", "🔎 輸入地點查雨勢"),
+    BotCommand("radar", "📡 查詢區域雷達圖"),
+    BotCommand("feedback", "💬 提供回饋"),
+    BotCommand("manual", "📖 使用說明書"),
+]
+
+radar_service = RadarService()
 
 
-# --- 2. 機器人邏輯 ---
-
-async def post_init(application: Application):
-    commands = [
-        BotCommand("start", "🌦 開始使用"),
-        BotCommand("fav", "⭐ 我的喜愛點"),
-        BotCommand("nearby", "📍 查詢現在位置雨量"),
-        BotCommand("radar", "📡 查詢區域雷達圖"),
-        BotCommand("place", "🔎 輸入地點查雨勢"),
-        BotCommand("manual", "📖 使用說明書"),
-    ]
-    await application.bot.set_my_commands(commands)
-    print("--- 左下角快捷選單已自動同步 ---")
-
-    admin_chat_id = os.environ.get("ADMIN_CHAT_ID", "6501701404")
-    try:
-        update_msg = "🚀 **系統更新完成！**\n\n"
-        await application.bot.send_message(chat_id=admin_chat_id, text=update_msg, parse_mode="Markdown")
-        print(f"--- 已發送系統更新通知給 {admin_chat_id} ---")
-    except Exception as e:
-        print(f"--- 無法發送更新通知給管理員: {e} ---")
-
-
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [
-            InlineKeyboardButton("📍 查詢現在位置", callback_data="action_nearby"),
-            InlineKeyboardButton("🔎 查詢指定地點", callback_data="action_place"),
-        ],
-        [
-            InlineKeyboardButton("📡 區域雷達圖", callback_data="action_radar"),
-            InlineKeyboardButton("⭐ 我的喜愛點", callback_data="action_fav"),
-        ],
-    ]
-    msg = (
-        "🌦 *氣象雷達機器人*\n\n"
-        "即時查詢台灣各地降雨資訊，資料來源：中央氣象署 (CWA)。\n\n"
-        "📍 `/nearby` — 查詢現在位置\n"
-        "🔎 `/place` — 輸入地點查雨勢\n"
-        "📡 `/radar` — 大區域雷達圖\n"
-        "⭐ `/fav` — 我的喜愛點\n"
-        "📖 `/manual` — 使用說明書"
-    )
-    await update.message.reply_text(
-        msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-async def request_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    location_button = KeyboardButton(text="📍 發送目前位置", request_location=True)
-    reply_markup = ReplyKeyboardMarkup([[location_button]], resize_keyboard=True, one_time_keyboard=True)
-    await update.message.reply_text(
-        "請點擊下方按鈕，查詢當地的降雨資訊 🌤️",
-        reply_markup=reply_markup,
-    )
-
-
-async def radar_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [KeyboardButton("北部"), KeyboardButton("中部")],
-        [KeyboardButton("南部")],
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-    await update.message.reply_text("請選擇要查詢的區域：", reply_markup=reply_markup)
-
-
-async def fav_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    favorites = await db_service.get_favorites(user_id)
-
-    if not favorites:
-        await update.message.reply_text(
-            "⭐ 你還沒有儲存任何喜愛點。\n\n使用 `/place` 查詢地點後，可以按「⭐ 加入喜愛點」儲存。",
-            parse_mode="Markdown",
-        )
-        return
-
-    await update.message.reply_text(
-        f"⭐ *我的喜愛點*（{len(favorites)}/{db_service.MAX_FAVORITES}）\n\n點選地點查詢即時雨勢，或按 🗑️ 刪除。",
-        parse_mode="Markdown",
-        reply_markup=_build_fav_keyboard(favorites),
-    )
-
-
-async def manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = (
-        "📖 **氣象雷達機器人 使用說明書**\n\n"
-        "本機器人串接中央氣象署 (CWA) 即時圖資，提供精準的降雨趨勢查詢。\n\n"
-        "📍 **功能介紹：**\n"
-        "1. `/nearby` - **查詢目前位置**\n"
-        "   發送你的 GPS 座標，機器人會回傳以你為中心的雷達圖，並自動分析降雨強度。\n\n"
-        "2. `/place` - **查詢指定地點**\n"
-        "   輸入地名或地址（例如：`台北101`），系統會精準定位並顯示當地即時雨勢。\n\n"
-        "3. `/radar` - **大區域雷達圖**\n"
-        "   快速切換查看「北部、中部、南部」的大範圍降雨分佈。\n\n"
-        "4. `/fav` - **我的喜愛點**\n"
-        "   儲存常用地點（最多 5 個），一鍵查詢即時雨勢。\n\n"
-        "🖼️ **結果解讀：**\n"
-        "• **紅色圓點**：代表你查詢的確切目標位置。\n"
-        "• **彩色區塊**：代表降雨強度（綠色 < 藍色 < 黃色 < 紅色 < 紫色）。\n"
-        "• **分析文字**：機器人會自動告訴你目前是「無明顯降雨」或有降雨風險。\n\n"
-        "⚠️ **小提醒：**\n"
-        "• 氣象署圖資約每 2-10 分鐘更新一次。\n"
-        "• 若地點搜尋不到，請嘗試輸入更完整的行政區名稱。"
-    )
-    await update.message.reply_text(msg, parse_mode="Markdown")
-
+# ── 輔助函式 ─────────────────────────────────────────────────────────
 
 def resolve_place_to_latlon(place_name: str):
-    """將地點文字轉成經緯度，優先使用 Google Maps，失敗時用本地 fallback。"""
     query = (place_name or "").strip()
     if not query:
         return None, None, "", "not_found"
@@ -167,20 +68,7 @@ def resolve_place_to_latlon(place_name: str):
         except Exception as exc:
             print(f"[Google Geocoding 失敗] {exc}")
 
-    fallback_key = query.lower()
-    if fallback_key in PLACE_FALLBACKS:
-        lat, lon = PLACE_FALLBACKS[fallback_key]
-        return lat, lon, query, "fallback"
-
     return None, None, query, "not_found"
-
-
-async def request_place(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["awaiting_place_input"] = True
-    await update.message.reply_text(
-        "請輸入要查詢的地點或地址。",
-        reply_markup=ReplyKeyboardRemove(),
-    )
 
 
 def _build_fav_keyboard(favorites: list) -> InlineKeyboardMarkup:
@@ -193,12 +81,24 @@ def _build_fav_keyboard(favorites: list) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def _build_inbox_text_and_keyboard(feedbacks: list):
+    lines = [f"📬 *回饋列表*（共 {len(feedbacks)} 筆）\n"]
+    for i, fb in enumerate(feedbacks, 1):
+        username = f"@{fb['username']}" if fb["username"] else f"ID:{fb['user_id']}"
+        dt = fb["created_at"].strftime("%m-%d %H:%M") if fb["created_at"] else ""
+        lines.append(f"*{i}.* {username} | {dt}\n{fb['text']}\n")
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:4000] + "\n...(已截斷)"
+    keyboard = [[InlineKeyboardButton("🗑️ 刪除", callback_data="inbox_delete")]]
+    return text, InlineKeyboardMarkup(keyboard)
+
+
 async def _send_place_radar(
     message, context: ContextTypes.DEFAULT_TYPE,
     lat: float, lon: float, place_label: str,
     show_add_fav: bool = True,
 ):
-    """發送地點雷達圖。message 可為 update.message 或 query.message。"""
     processing_msg = await message.reply_text(
         f"⏳ 正在查詢「{place_label}」的降雨資訊，請稍候...",
         reply_markup=ReplyKeyboardRemove(),
@@ -226,25 +126,152 @@ async def _send_place_radar(
         await processing_msg.edit_text("❌ 發生系統錯誤，請稍後再試。")
 
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    print(f"[ERROR] 發生例外：{context.error}")
+# ── 指令處理 ─────────────────────────────────────────────────────────
 
+async def post_init(application: Application):
+    await application.bot.set_my_commands(BOT_COMMANDS)
+    print("--- 左下角快捷選單已自動同步 ---")
+    try:
+        await application.bot.send_message(
+            chat_id=ADMIN_CHAT_ID,
+            text="🚀 **系統更新完成！**\n\n",
+            parse_mode="Markdown",
+        )
+        print(f"--- 已發送系統更新通知給 {ADMIN_CHAT_ID} ---")
+    except Exception as e:
+        print(f"--- 無法發送更新通知給管理員: {e} ---")
+
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [
+            InlineKeyboardButton("📍 查詢現在位置", callback_data="action_nearby"),
+            InlineKeyboardButton("🔎 查詢指定地點", callback_data="action_place"),
+        ],
+        [
+            InlineKeyboardButton("📡 區域雷達圖", callback_data="action_radar"),
+            InlineKeyboardButton("⭐ 我的喜愛點", callback_data="action_fav"),
+        ],
+    ]
+    msg = (
+        "🌦 *氣象雷達機器人*\n\n"
+        "即時查詢台灣各地降雨資訊，資料來源：中央氣象署 (CWA)。\n\n"
+        "📍 `/nearby` — 查詢現在位置\n"
+        "🔎 `/place` — 輸入地點查雨勢\n"
+        "📡 `/radar` — 大區域雷達圖\n"
+        "⭐ `/fav` — 我的喜愛點\n"
+        "📖 `/manual` — 使用說明書"
+    )
+    await update.message.reply_text(
+        msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def request_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    location_button = KeyboardButton(text="📍 發送目前位置", request_location=True)
+    await update.message.reply_text(
+        "請點擊下方按鈕，查詢當地的降雨資訊 🌤️",
+        reply_markup=ReplyKeyboardMarkup([[location_button]], resize_keyboard=True, one_time_keyboard=True),
+    )
+
+
+async def radar_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [KeyboardButton("北部"), KeyboardButton("中部")],
+        [KeyboardButton("南部")],
+    ]
+    await update.message.reply_text(
+        "請選擇要查詢的區域：",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True),
+    )
+
+
+async def fav_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    favorites = await db_service.get_favorites(user_id)
+    if not favorites:
+        await update.message.reply_text(
+            "⭐ 你還沒有儲存任何喜愛點。\n\n使用 `/place` 查詢地點後，可以按「⭐ 加入喜愛點」儲存。",
+            parse_mode="Markdown",
+        )
+        return
+    await update.message.reply_text(
+        f"⭐ *我的喜愛點*（{len(favorites)}/{db_service.MAX_FAVORITES}）\n\n點選地點查詢即時雨勢，或按 🗑️ 刪除。",
+        parse_mode="Markdown",
+        reply_markup=_build_fav_keyboard(favorites),
+    )
+
+
+async def request_place(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["awaiting_place_input"] = True
+    await update.message.reply_text(
+        "請輸入要查詢的地點或地址。",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+async def feedback_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["awaiting_feedback"] = True
+    await update.message.reply_text(
+        "💬 請輸入你的回饋或建議，我們會認真閱讀：",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+
+async def inbox_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.effective_user.id) != str(ADMIN_CHAT_ID):
+        return
+    feedbacks = await db_service.get_all_feedback()
+    if not feedbacks:
+        await update.message.reply_text("📭 目前沒有任何回饋。")
+        return
+    context.user_data["inbox_feedback_ids"] = [fb["id"] for fb in feedbacks]
+    text, keyboard = _build_inbox_text_and_keyboard(feedbacks)
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+
+async def manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = (
+        "📖 **氣象雷達機器人 使用說明書**\n\n"
+        "本機器人串接中央氣象署 (CWA) 即時圖資，提供精準的降雨趨勢查詢。\n\n"
+        "📍 **功能介紹：**\n"
+        "1. `/nearby` - **查詢目前位置**\n"
+        "   發送你的 GPS 座標，機器人會回傳以你為中心的雷達圖，並自動分析降雨強度。\n\n"
+        "2. `/place` - **查詢指定地點**\n"
+        "   輸入地名或地址（例如：`台北101`），系統會精準定位並顯示當地即時雨勢。\n\n"
+        "3. `/radar` - **大區域雷達圖**\n"
+        "   快速切換查看「北部、中部、南部」的大範圍降雨分佈。\n\n"
+        "4. `/fav` - **我的喜愛點**\n"
+        "   儲存常用地點（最多 5 個），一鍵查詢即時雨勢。\n\n"
+        "🖼️ **結果解讀：**\n"
+        "• **紅色圓點**：代表你查詢的確切目標位置。\n"
+        "• **彩色區塊**：代表降雨強度（綠色 < 藍色 < 黃色 < 紅色 < 紫色）。\n"
+        "• **分析文字**：機器人會自動告訴你目前是「無明顯降雨」或有降雨風險。\n\n"
+        "⚠️ **小提醒：**\n"
+        "• 氣象署圖資約每 2-10 分鐘更新一次。\n"
+        "• 若地點搜尋不到，請嘗試輸入更完整的行政區名稱。"
+    )
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
+# ── 事件處理 ─────────────────────────────────────────────────────────
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     data = query.data
 
     if data == "action_nearby":
+        await query.answer()
         location_button = KeyboardButton(text="📍 發送目前位置", request_location=True)
-        reply_markup = ReplyKeyboardMarkup(
-            [[location_button]], resize_keyboard=True, one_time_keyboard=True
-        )
         await query.message.reply_text(
-            "請點擊下方按鈕，查詢當地的降雨資訊 🌤️", reply_markup=reply_markup
+            "請點擊下方按鈕，查詢當地的降雨資訊 🌤️",
+            reply_markup=ReplyKeyboardMarkup(
+                [[location_button]], resize_keyboard=True, one_time_keyboard=True
+            ),
         )
 
     elif data == "action_place":
+        await query.answer()
         context.user_data["awaiting_place_input"] = True
         await query.message.reply_text(
             "請輸入要查詢的地點名稱（例如：台北101）。",
@@ -252,6 +279,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "action_radar":
+        await query.answer()
         keyboard = [
             [KeyboardButton("北部"), KeyboardButton("中部")],
             [KeyboardButton("南部")],
@@ -262,6 +290,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "action_fav":
+        await query.answer()
         user_id = query.from_user.id
         favorites = await db_service.get_favorites(user_id)
         if not favorites:
@@ -277,6 +306,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
     elif data == "fav_add":
+        await query.answer()
         last = context.user_data.get("last_place")
         if not last:
             await query.message.reply_text("❌ 找不到最近查詢的地點，請先使用 /place 查詢。")
@@ -291,6 +321,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data.startswith("fav_q_"):
+        await query.answer()
         fav_id = int(data.split("_")[2])
         user_id = query.from_user.id
         favorites = await db_service.get_favorites(user_id)
@@ -320,9 +351,54 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text("🗑️ 已刪除。")
         await query.answer("已刪除 ✓")
 
+    elif data == "inbox_delete":
+        if str(query.from_user.id) != str(ADMIN_CHAT_ID):
+            await query.answer()
+            return
+        ids = context.user_data.get("inbox_feedback_ids", [])
+        if not ids:
+            await query.answer("沒有可刪除的項目")
+            return
+        await query.answer()
+        context.user_data["awaiting_feedback_delete"] = True
+        await query.message.reply_text(f"請輸入要刪除的編號（1－{len(ids)}）：")
+
 
 async def handle_region_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+
+    if context.user_data.get("awaiting_feedback_delete"):
+        if str(update.effective_user.id) != str(ADMIN_CHAT_ID):
+            return
+        ids = context.user_data.get("inbox_feedback_ids", [])
+        try:
+            num = int(text.strip())
+            if not (1 <= num <= len(ids)):
+                await update.message.reply_text(f"❌ 請輸入 1 到 {len(ids)} 之間的數字。")
+                return
+            context.user_data["awaiting_feedback_delete"] = False
+            await db_service.delete_feedback_item(ids[num - 1])
+            feedbacks = await db_service.get_all_feedback()
+            context.user_data["inbox_feedback_ids"] = [fb["id"] for fb in feedbacks]
+            if not feedbacks:
+                await update.message.reply_text("📭 所有回饋已清空。")
+            else:
+                msg, keyboard = _build_inbox_text_and_keyboard(feedbacks)
+                await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=keyboard)
+        except ValueError:
+            await update.message.reply_text("❌ 請輸入數字。")
+        return
+
+    if context.user_data.get("awaiting_feedback"):
+        feedback_text = text.strip()
+        context.user_data["awaiting_feedback"] = False
+        if not feedback_text:
+            await update.message.reply_text("回饋不能為空，請重新使用 /feedback 提交。")
+            return
+        user = update.effective_user
+        await db_service.add_feedback(user.id, user.username or "", feedback_text)
+        await update.message.reply_text("✅ 感謝你的回饋！我們會認真參考。")
+        return
 
     if context.user_data.get("awaiting_fav_name"):
         fav_name = text.strip()
@@ -344,12 +420,7 @@ async def handle_region_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(f"⭐ 已將「{fav_name}」加入喜愛點！")
         return
 
-    region_map = {
-        "北部": "north",
-        "中部": "central",
-        "南部": "south",
-    }
-
+    region_map = {"北部": "north", "中部": "central", "南部": "south"}
     if text in region_map:
         region_key = region_map[text]
         processing_msg = await update.message.reply_text(
@@ -385,7 +456,6 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_location = update.message.location
     lat = user_location.latitude
     lon = user_location.longitude
-
     processing_msg = await update.message.reply_text(
         "⏳ 正在產生雷達降雨圖，請稍候...",
         reply_markup=ReplyKeyboardRemove(),
@@ -406,7 +476,12 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processing_msg.edit_text("❌ 發生系統錯誤，請稍後再試。")
 
 
-# --- 3. 機器人啟動器 ---
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    print(f"[ERROR] 發生例外：{context.error}")
+
+
+# ── 啟動 ─────────────────────────────────────────────────────────────
+
 def run_tg_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -418,6 +493,8 @@ def run_tg_bot():
     app.add_handler(CommandHandler("nearby", request_location))
     app.add_handler(CommandHandler("radar", radar_menu))
     app.add_handler(CommandHandler("place", request_place))
+    app.add_handler(CommandHandler("feedback", feedback_command))
+    app.add_handler(CommandHandler("inbox", inbox_command))
     app.add_handler(CommandHandler("manual", manual))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.LOCATION, handle_location))
@@ -428,7 +505,6 @@ def run_tg_bot():
     app.run_polling(drop_pending_updates=True, stop_signals=None)
 
 
-# --- 4. 極輕量網頁伺服器 (給 Render 與 UptimeRobot 喚醒用) ---
 class PingHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -447,7 +523,6 @@ def run_dummy_server():
     server.serve_forever()
 
 
-# --- 5. 主程式入口 ---
 if __name__ == "__main__":
     threading.Thread(target=run_tg_bot, daemon=True).start()
     run_dummy_server()
