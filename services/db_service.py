@@ -1,31 +1,31 @@
 import os
 import asyncio
-from supabase import create_client, Client
+import requests as _req
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 MAX_FAVORITES = 5
 
-_client: Client = None
-
-
-def _get_client() -> Client:
-    global _client
-    if _client is None:
-        _client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    return _client
+_BASE = lambda: f"{SUPABASE_URL}/rest/v1"
+_HEADERS = lambda: {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=representation",
+}
 
 
 async def get_favorites(user_id: int) -> list:
-    client = _get_client()
-    result = await asyncio.to_thread(
-        lambda: client.table("user_favorites")
-        .select("*")
-        .eq("user_id", user_id)
-        .order("created_at")
-        .execute()
-    )
-    return result.data
+    def _fetch():
+        r = _req.get(
+            f"{_BASE()}/user_favorites",
+            headers=_HEADERS(),
+            params={"user_id": f"eq.{user_id}", "order": "created_at"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json()
+    return await asyncio.to_thread(_fetch)
 
 
 async def add_favorite(user_id: int, name: str, lat: float, lon: float) -> dict:
@@ -35,21 +35,27 @@ async def add_favorite(user_id: int, name: str, lat: float, lon: float) -> dict:
     for fav in existing:
         if fav["name"] == name:
             return {"error": "duplicate"}
-    client = _get_client()
-    result = await asyncio.to_thread(
-        lambda: client.table("user_favorites")
-        .insert({"user_id": user_id, "name": name, "lat": lat, "lon": lon})
-        .execute()
-    )
-    return {"data": result.data}
+
+    def _insert():
+        r = _req.post(
+            f"{_BASE()}/user_favorites",
+            headers=_HEADERS(),
+            json={"user_id": user_id, "name": name, "lat": lat, "lon": lon},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json()
+    data = await asyncio.to_thread(_insert)
+    return {"data": data}
 
 
 async def delete_favorite(fav_id: int, user_id: int) -> None:
-    client = _get_client()
-    await asyncio.to_thread(
-        lambda: client.table("user_favorites")
-        .delete()
-        .eq("id", fav_id)
-        .eq("user_id", user_id)
-        .execute()
-    )
+    def _delete():
+        r = _req.delete(
+            f"{_BASE()}/user_favorites",
+            headers=_HEADERS(),
+            params={"id": f"eq.{fav_id}", "user_id": f"eq.{user_id}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+    await asyncio.to_thread(_delete)
