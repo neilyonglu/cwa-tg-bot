@@ -281,21 +281,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not last:
             await query.message.reply_text("❌ 找不到最近查詢的地點，請先使用 /place 查詢。")
             return
-        user_id = query.from_user.id
-        result = await db_service.add_favorite(user_id, last["name"], last["lat"], last["lon"])
         try:
             await query.edit_message_reply_markup(reply_markup=None)
         except Exception:
             pass
-        if "error" in result:
-            if result["error"] == "limit_exceeded":
-                await query.message.reply_text(
-                    f"❌ 最多只能儲存 {db_service.MAX_FAVORITES} 個喜愛點，請先刪除舊的（/fav）。"
-                )
-            else:
-                await query.message.reply_text(f"「{last['name']}」已在喜愛點中。")
-        else:
-            await query.message.reply_text(f"⭐ 已將「{last['name']}」加入喜愛點！")
+        context.user_data["awaiting_fav_name"] = True
+        await query.message.reply_text(
+            f"📍 {last['name']}\n\n請為這個地點取個名稱（例如：公司、家、學校）："
+        )
 
     elif data.startswith("fav_q_"):
         fav_id = int(data.split("_")[2])
@@ -330,6 +323,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_region_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+
+    if context.user_data.get("awaiting_fav_name"):
+        fav_name = text.strip()
+        last = context.user_data.get("last_place")
+        context.user_data["awaiting_fav_name"] = False
+        if not fav_name or not last:
+            await update.message.reply_text("❌ 命名失敗，請重新查詢地點後再加入。")
+            return
+        user_id = update.effective_user.id
+        result = await db_service.add_favorite(user_id, fav_name, last["lat"], last["lon"])
+        if "error" in result:
+            if result["error"] == "limit_exceeded":
+                await update.message.reply_text(
+                    f"❌ 最多只能儲存 {db_service.MAX_FAVORITES} 個喜愛點，請先刪除舊的（/fav）。"
+                )
+            else:
+                await update.message.reply_text(f"「{fav_name}」已在喜愛點中。")
+        else:
+            await update.message.reply_text(f"⭐ 已將「{fav_name}」加入喜愛點！")
+        return
+
     region_map = {
         "北部": "north",
         "中部": "central",
@@ -357,14 +371,14 @@ async def handle_region_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     if context.user_data.get("awaiting_place_input"):
-        lat, lon, display_name, _ = resolve_place_to_latlon(text)
+        lat, lon, _, _ = resolve_place_to_latlon(text)
         if lat is None or lon is None:
             await update.message.reply_text(
                 f"❌ 找不到「{text}」這個地點，請重新輸入更完整的地名（例如：台北101）。"
             )
             return
         context.user_data["awaiting_place_input"] = False
-        await _send_place_radar(update.message, context, lat, lon, display_name)
+        await _send_place_radar(update.message, context, lat, lon, text)
 
 
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
