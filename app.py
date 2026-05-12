@@ -13,13 +13,14 @@ from telegram.ext import (
 )
 from services.radar_service import RadarService
 from services import db_service
+from services import llm_service
 
 # ── 常數 ────────────────────────────────────────────────────────────
 
 TG_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "6501701404")
 GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
-GOOGLE_MAPS_API_KEY = os.environ.get("GEMINI_API_KEY")
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_KEY")
 
 BOT_COMMANDS = [
     BotCommand("start", "🌦 開始使用"),
@@ -27,6 +28,7 @@ BOT_COMMANDS = [
     BotCommand("place", "🔎 輸入地點查雨勢"),
     BotCommand("fav", "⭐ 我的喜愛點"),
     BotCommand("radar", "📡 查詢區域雷達圖"),
+    BotCommand("subscribe", "🔔 訂閱／取消訂閱更新通知"),
     BotCommand("feedback", "💬 提供回饋"),
     BotCommand("manual", "📖 使用說明書"),
 ]
@@ -107,6 +109,7 @@ async def _send_place_radar(
         img_bytes, img_time_str, rain_desc = await radar_service.get_marked_radar(lat, lon)
         if img_bytes:
             rain_desc = rain_desc or "☀️ 目前無明顯降雨"
+            llm_desc = await llm_service.analyze_rainfall(place_label, img_time_str, rain_desc)
             reply_markup = None
             if show_add_fav:
                 context.user_data["last_place"] = {"name": place_label, "lat": lat, "lon": lon}
@@ -115,7 +118,7 @@ async def _send_place_radar(
                 )
             await message.reply_photo(
                 photo=img_bytes,
-                caption=f"📍 地點：{place_label}\n🕒 時間：{img_time_str}\n{rain_desc}",
+                caption=f"📍 地點：{place_label}\n🕒 時間：{img_time_str}\n{llm_desc or rain_desc}",
                 reply_markup=reply_markup,
             )
             await processing_msg.delete()
@@ -141,8 +144,24 @@ async def post_init(application: Application):
     except Exception as e:
         print(f"--- 無法發送更新通知給管理員: {e} ---")
 
+    broadcast_msg = os.environ.get("BROADCAST_MESSAGE", "").strip()
+    if broadcast_msg:
+        user_ids = await db_service.get_subscribed_user_ids()
+        print(f"--- 開始廣播，共 {len(user_ids)} 位訂閱者 ---")
+        sent = 0
+        for uid in user_ids:
+            try:
+                await application.bot.send_message(chat_id=uid, text=broadcast_msg)
+                sent += 1
+                await asyncio.sleep(0.05)
+            except Exception:
+                pass
+        print(f"--- 廣播完成：{sent}/{len(user_ids)} ---")
+
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    await db_service.save_user(user.id, user.username or "")
     keyboard = [
         [
             InlineKeyboardButton("📍 查詢現在位置", callback_data="action_nearby"),
@@ -199,6 +218,29 @@ async def fav_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⭐ *我的喜愛點*（{len(favorites)}/{db_service.MAX_FAVORITES}）\n\n點選地點查詢即時雨勢，或按 🗑️ 刪除。",
         parse_mode="Markdown",
         reply_markup=_build_fav_keyboard(favorites),
+    )
+
+
+async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    await db_service.save_user(user.id, user.username or "")
+    is_subscribed = await db_service.get_subscription_status(user.id)
+    await _send_subscribe_status(update.message, user.id, is_subscribed)
+
+
+async def _send_subscribe_status(message, user_id: int, is_subscribed: bool):
+    if is_subscribed:
+        text = "🔔 *你目前已訂閱更新通知*\n\n伺服器有新功能時，你會收到通知。"
+        button_label = "🔕 取消訂閱"
+    else:
+        text = "🔕 *你目前未訂閱更新通知*\n\n訂閱後，伺服器有新功能時會主動通知你。"
+        button_label = "🔔 訂閱更新通知"
+    await message.reply_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton(button_label, callback_data="sub_toggle")]]
+        ),
     )
 
 
@@ -351,6 +393,22 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text("🗑️ 已刪除。")
         await query.answer("已刪除 ✓")
 
+    elif data == "sub_toggle":
+        await query.answer()
+        user_id = query.from_user.id
+        new_state = await db_service.toggle_subscription(user_id)
+        await query.edit_message_text(
+            "🔔 *已開啟更新通知！*\n\n伺服器有新功能時，你會收到通知。" if new_state else
+            "🔕 *已取消訂閱。*\n\n你不會再收到更新通知。",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "🔕 取消訂閱" if new_state else "🔔 重新訂閱",
+                    callback_data="sub_toggle",
+                )
+            ]]),
+        )
+
     elif data == "inbox_delete":
         if str(query.from_user.id) != str(ADMIN_CHAT_ID):
             await query.answer()
@@ -453,6 +511,8 @@ async def handle_region_text(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    await db_service.save_user(user.id, user.username or "")
     user_location = update.message.location
     lat = user_location.latitude
     lon = user_location.longitude
@@ -464,9 +524,14 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
         img_bytes, img_time_str, rain_desc = await radar_service.get_marked_radar(lat, lon)
         if img_bytes:
             rain_desc = rain_desc or "☀️ 目前無明顯降雨"
+            llm_desc = await llm_service.analyze_rainfall("目前位置", img_time_str, rain_desc)
+            context.user_data["last_place"] = {"name": "目前位置", "lat": lat, "lon": lon}
             await update.message.reply_photo(
                 photo=img_bytes,
-                caption=f"🕒 時間：{img_time_str}\n{rain_desc}",
+                caption=f"📍 目前位置\n🕒 時間：{img_time_str}\n{llm_desc or rain_desc}",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("⭐ 加入喜愛點", callback_data="fav_add")]]
+                ),
             )
             await processing_msg.delete()
         else:
@@ -493,6 +558,7 @@ def run_tg_bot():
     app.add_handler(CommandHandler("nearby", request_location))
     app.add_handler(CommandHandler("radar", radar_menu))
     app.add_handler(CommandHandler("place", request_place))
+    app.add_handler(CommandHandler("subscribe", subscribe_command))
     app.add_handler(CommandHandler("feedback", feedback_command))
     app.add_handler(CommandHandler("inbox", inbox_command))
     app.add_handler(CommandHandler("manual", manual))

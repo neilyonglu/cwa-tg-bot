@@ -4,11 +4,12 @@ import os
 import requests
 from dotenv import load_dotenv
 from services.radar_service import RadarService
+from services import llm_service
 
 load_dotenv()
 
 GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
-GOOGLE_MAPS_API_KEY = os.environ.get("GEMINI_API_KEY")
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_KEY")
 PLACE_FALLBACKS = {
     "台北101": (25.033964, 121.564468),
     "taipei 101": (25.033964, 121.564468),
@@ -74,6 +75,13 @@ async def main():
         with open("output/test_place_radar.png", "wb") as f:
             f.write(img_bytes)
         print("Saved to output/test_place_radar.png")
+
+        print("\n--- LLM 分析 ---")
+        llm_desc = await llm_service.analyze_rainfall(display_name, img_time, rain_desc)
+        if llm_desc:
+            print(f"LLM: {llm_desc}")
+        else:
+            print("LLM 分析失敗或未設定 GEMINI_API_KEY")
     else:
         print("Failed to get image bytes.")
 
