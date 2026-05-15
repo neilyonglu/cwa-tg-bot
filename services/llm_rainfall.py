@@ -32,7 +32,7 @@ async def analyze_rainfall(location: str, time_str: str, basic_desc: str) -> str
     )
 
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: _get_client().models.generate_content(
