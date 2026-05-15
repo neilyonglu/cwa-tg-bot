@@ -2,15 +2,9 @@ import io
 from PIL import Image, ImageDraw
 from pyproj import Transformer
 from config.settings import (
-    IMAGE_SIZE,
-    IMAGE_CENTER_PX,
-    PIXEL_PER_KM,
-    MARKER_RADIUS,
-    MARKER_COLOR,
-    MARKER_OUTLINE,
-    MARKER_OUTLINE_WIDTH,
-    CROP_SIZE,
-    DBZ_COLOR_SCALE,
+    IMAGE_SIZE, IMAGE_CENTER_PX, PIXEL_PER_KM,
+    MARKER_RADIUS, MARKER_COLOR, MARKER_OUTLINE, MARKER_OUTLINE_WIDTH,
+    CROP_SIZE, DBZ_COLOR_SCALE,
 )
 
 _dbz_color_to_value: dict = {color: dbz for dbz, color in enumerate(DBZ_COLOR_SCALE)}
@@ -44,9 +38,7 @@ def match_dbz_from_color(rgb: tuple) -> int | None:
     return None
 
 
-def analyze_point_dbz(
-    img_bytes: bytes, station: dict, user_lat: float, user_lon: float
-):
+def analyze_point_dbz(img_bytes: bytes, station: dict, user_lat: float, user_lon: float):
     px_x, px_y = latlon_to_pixel(
         station["center_lat"], station["center_lon"], user_lat, user_lon
     )
@@ -72,9 +64,7 @@ def dbz_to_human_text(dbz) -> str:
     return "⚠️ 強降雨警告，請遠離低窪地區"
 
 
-def mark_location(
-    img_bytes: bytes, station: dict, user_lat: float, user_lon: float
-) -> bytes | None:
+def mark_location(img_bytes: bytes, station: dict, user_lat: float, user_lon: float) -> bytes | None:
     px_x, px_y = latlon_to_pixel(
         station["center_lat"], station["center_lon"], user_lat, user_lon
     )
@@ -88,9 +78,7 @@ def mark_location(
     r = MARKER_RADIUS
     draw.ellipse(
         [px_x - r, px_y - r, px_x + r, px_y + r],
-        fill=MARKER_COLOR,
-        outline=MARKER_OUTLINE,
-        width=MARKER_OUTLINE_WIDTH,
+        fill=MARKER_COLOR, outline=MARKER_OUTLINE, width=MARKER_OUTLINE_WIDTH,
     )
 
     half = CROP_SIZE // 2

@@ -13,7 +13,9 @@ async def _ensure_schema():
                     first_seen TIMESTAMP DEFAULT NOW()
                 )
             """)
-
+            cur.execute(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscribed BOOLEAN DEFAULT FALSE"
+            )
     await asyncio.to_thread(_run)
 
 
@@ -25,7 +27,6 @@ async def save_user(user_id: int, username: str) -> None:
                 " ON CONFLICT (user_id) DO NOTHING",
                 (user_id, username or ""),
             )
-
     await asyncio.to_thread(_upsert)
 
 
@@ -39,7 +40,6 @@ async def toggle_subscription(user_id: int) -> bool:
             )
             row = cur.fetchone()
             return bool(row[0]) if row else False
-
     return await asyncio.to_thread(_toggle)
 
 
@@ -49,7 +49,6 @@ async def get_subscription_status(user_id: int) -> bool:
             cur.execute("SELECT subscribed FROM users WHERE user_id = %s", (user_id,))
             row = cur.fetchone()
             return bool(row[0]) if row else False
-
     return await asyncio.to_thread(_fetch)
 
 
@@ -58,7 +57,6 @@ async def get_subscribed_user_ids() -> list[int]:
         with _db() as conn, conn.cursor() as cur:
             cur.execute("SELECT user_id FROM users WHERE subscribed = TRUE")
             return [row[0] for row in cur.fetchall()]
-
     try:
         return await asyncio.to_thread(_fetch)
     except Exception:

@@ -9,14 +9,10 @@ radar_service = RadarService()
 def build_fav_keyboard(favorites: list) -> InlineKeyboardMarkup:
     keyboard = []
     for fav in favorites:
-        keyboard.append(
-            [
-                InlineKeyboardButton(
-                    f"📍 {fav['name']}", callback_data=f"fav_q_{fav['id']}"
-                ),
-                InlineKeyboardButton("🗑️", callback_data=f"fav_d_{fav['id']}"),
-            ]
-        )
+        keyboard.append([
+            InlineKeyboardButton(f"📍 {fav['name']}", callback_data=f"fav_q_{fav['id']}"),
+            InlineKeyboardButton("🗑️", callback_data=f"fav_d_{fav['id']}"),
+        ])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -34,11 +30,8 @@ def build_inbox_text_and_keyboard(feedbacks: list):
 
 
 async def send_place_radar(
-    message,
-    context: ContextTypes.DEFAULT_TYPE,
-    lat: float,
-    lon: float,
-    place_label: str,
+    message, context: ContextTypes.DEFAULT_TYPE,
+    lat: float, lon: float, place_label: str,
     show_add_fav: bool = True,
 ):
     processing_msg = await message.reply_text(
@@ -46,21 +39,13 @@ async def send_place_radar(
         reply_markup=ReplyKeyboardRemove(),
     )
     try:
-        img_bytes, img_time_str, rain_desc = await radar_service.get_marked_radar(
-            lat, lon
-        )
+        img_bytes, img_time_str, rain_desc = await radar_service.get_marked_radar(lat, lon)
         if img_bytes:
             rain_desc = rain_desc or "☀️ 目前無明顯降雨"
-            llm_desc = await llm_service.analyze_rainfall(
-                place_label, img_time_str, rain_desc
-            )
+            llm_desc = await llm_service.analyze_rainfall(place_label, img_time_str, rain_desc)
             reply_markup = None
             if show_add_fav:
-                context.user_data["last_place"] = {
-                    "name": place_label,
-                    "lat": lat,
-                    "lon": lon,
-                }
+                context.user_data["last_place"] = {"name": place_label, "lat": lat, "lon": lon}
                 reply_markup = InlineKeyboardMarkup(
                     [[InlineKeyboardButton("⭐ 加入喜愛點", callback_data="fav_add")]]
                 )
@@ -71,9 +56,7 @@ async def send_place_radar(
             )
             await processing_msg.delete()
         else:
-            await processing_msg.edit_text(
-                "❌ 抱歉，目前無法取得該地點的雷達圖資，請稍後再試。"
-            )
+            await processing_msg.edit_text("❌ 抱歉，目前無法取得該地點的雷達圖資，請稍後再試。")
     except Exception as e:
         print(f"處理地點雷達發生錯誤: {e}")
         await processing_msg.edit_text("❌ 發生系統錯誤，請稍後再試。")

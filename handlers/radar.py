@@ -12,9 +12,7 @@ async def radar_menu(update, context):
     ]
     await update.message.reply_text(
         "請選擇要查詢的區域：",
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard, resize_keyboard=True, one_time_keyboard=True
-        ),
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True),
     )
 
 
@@ -50,14 +48,10 @@ async def _handle_action_radar(update, context):
     ]
     await update.callback_query.message.reply_text(
         "請選擇要查詢的區域：",
-        reply_markup=ReplyKeyboardMarkup(
-            keyboard, resize_keyboard=True, one_time_keyboard=True
-        ),
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True),
     )
 
 
 def register(app):
     app.add_handler(CommandHandler("radar", radar_menu))
-    app.add_handler(
-        CallbackQueryHandler(_handle_action_radar, pattern="^action_radar$")
-    )
+    app.add_handler(CallbackQueryHandler(_handle_action_radar, pattern="^action_radar$"))

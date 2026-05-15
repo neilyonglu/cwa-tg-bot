@@ -60,9 +60,7 @@ async def post_init(application: Application):
         sent = 0
         for uid in user_ids:
             try:
-                await application.bot.send_message(
-                    chat_id=uid, text=msg_to_send, parse_mode="Markdown"
-                )
+                await application.bot.send_message(chat_id=uid, text=msg_to_send, parse_mode="Markdown")
                 sent += 1
                 await asyncio.sleep(0.05)
             except Exception:

@@ -6,6 +6,7 @@ from services.radar_render import analyze_point_dbz, dbz_to_human_text, mark_loc
 
 
 class RadarService:
+
     def get_station_for_location(self, lat, lon):
         if lat > REGION_LAT_BOUNDARIES["north"]:
             return RADAR_STATIONS["north"]
@@ -23,33 +24,23 @@ class RadarService:
         if not img_bytes:
             return None, None, None
 
-        primary_dbz, in_range, is_blind_zone = analyze_point_dbz(
-            img_bytes, station, lat, lon
-        )
+        primary_dbz, in_range, is_blind_zone = analyze_point_dbz(img_bytes, station, lat, lon)
         best_station, best_img_bytes, best_img_time = station, img_bytes, img_time_str
         best_dbz = primary_dbz if primary_dbz is not None else -1
 
         if in_range and is_blind_zone:
             primary_key = next(
-                (k for k, v in RADAR_STATIONS.items() if v["dataset_id"] == dataset_id),
-                None,
+                (k for k, v in RADAR_STATIONS.items() if v["dataset_id"] == dataset_id), None
             )
             for backup_key in RADAR_BACKUP_ORDER.get(primary_key, []):
                 backup_station = RADAR_STATIONS[backup_key]
-                backup_bytes, backup_time = await fetch_radar_image(
-                    backup_station["dataset_id"]
-                )
+                backup_bytes, backup_time = await fetch_radar_image(backup_station["dataset_id"])
                 if not backup_bytes:
                     continue
-                backup_dbz, backup_in_range, _ = analyze_point_dbz(
-                    backup_bytes, backup_station, lat, lon
-                )
-                if backup_in_range and backup_dbz is not None and backup_dbz > 0 and backup_dbz > best_dbz:
+                backup_dbz, backup_in_range, _ = analyze_point_dbz(backup_bytes, backup_station, lat, lon)
+                if backup_in_range and backup_dbz is not None and backup_dbz > best_dbz:
                     best_station, best_img_bytes, best_img_time, best_dbz = (
-                        backup_station,
-                        backup_bytes,
-                        backup_time,
-                        backup_dbz,
+                        backup_station, backup_bytes, backup_time, backup_dbz
                     )
 
         marked = mark_location(best_img_bytes, best_station, lat, lon)

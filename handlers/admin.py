@@ -1,5 +1,5 @@
 import os
-from telegram import ReplyKeyboardRemove
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import CommandHandler, CallbackQueryHandler
 from handlers._utils import build_inbox_text_and_keyboard
 from models import feedback as feedback_model
@@ -37,9 +37,7 @@ async def handle_text(update, context) -> bool:
         try:
             num = int(text.strip())
             if not (1 <= num <= len(ids)):
-                await update.message.reply_text(
-                    f"❌ 請輸入 1 到 {len(ids)} 之間的數字。"
-                )
+                await update.message.reply_text(f"❌ 請輸入 1 到 {len(ids)} 之間的數字。")
                 return True
             context.user_data["awaiting_feedback_delete"] = False
             await feedback_model.delete_feedback_item(ids[num - 1])
@@ -49,9 +47,7 @@ async def handle_text(update, context) -> bool:
                 await update.message.reply_text("📭 所有回饋已清空。")
             else:
                 msg, keyboard = build_inbox_text_and_keyboard(feedbacks)
-                await update.message.reply_text(
-                    msg, parse_mode="Markdown", reply_markup=keyboard
-                )
+                await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=keyboard)
         except ValueError:
             await update.message.reply_text("❌ 請輸入數字。")
         return True
@@ -87,6 +83,4 @@ async def _handle_inbox_delete(update, context):
 def register(app):
     app.add_handler(CommandHandler("feedback", feedback_command))
     app.add_handler(CommandHandler("inbox", inbox_command))
-    app.add_handler(
-        CallbackQueryHandler(_handle_inbox_delete, pattern="^inbox_delete$")
-    )
+    app.add_handler(CallbackQueryHandler(_handle_inbox_delete, pattern="^inbox_delete$"))

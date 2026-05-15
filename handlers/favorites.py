@@ -1,4 +1,4 @@
-from telegram.ext import CommandHandler, CallbackQueryHandler
+from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from handlers._utils import build_fav_keyboard, send_place_radar
 from models import favorite as fav_model
 
@@ -64,18 +64,14 @@ async def _handle_fav_add(update, context):
     await query.answer()
     last = context.user_data.get("last_place")
     if not last:
-        await query.message.reply_text(
-            "❌ 找不到最近查詢的地點，請先使用 /place 查詢。"
-        )
+        await query.message.reply_text("❌ 找不到最近查詢的地點，請先使用 /place 查詢。")
         return
     try:
         await query.edit_message_reply_markup(reply_markup=None)
     except Exception:
         pass
     context.user_data["awaiting_fav_name"] = True
-    await query.message.reply_text(
-        f"📍 {last['name']}\n\n請為這個地點取個名稱（例如：公司、家、學校）："
-    )
+    await query.message.reply_text(f"📍 {last['name']}\n\n請為這個地點取個名稱（例如：公司、家、學校）：")
 
 
 async def _handle_fav_query(update, context):
@@ -85,14 +81,7 @@ async def _handle_fav_query(update, context):
     favorites = await fav_model.get_favorites(query.from_user.id)
     fav = next((f for f in favorites if f["id"] == fav_id), None)
     if fav:
-        await send_place_radar(
-            query.message,
-            context,
-            fav["lat"],
-            fav["lon"],
-            fav["name"],
-            show_add_fav=False,
-        )
+        await send_place_radar(query.message, context, fav["lat"], fav["lon"], fav["name"], show_add_fav=False)
     else:
         await query.message.reply_text("❌ 找不到此喜愛點，可能已被刪除。")
 
