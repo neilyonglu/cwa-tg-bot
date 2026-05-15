@@ -17,12 +17,14 @@ async def _ensure_schema():
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+
     await asyncio.to_thread(_run)
 
 
 async def get_favorites(user_id: int) -> list:
     def _fetch():
         from psycopg2.extras import RealDictCursor
+
         with _db() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 "SELECT id, name, lat, lon FROM user_favorites"
@@ -30,6 +32,7 @@ async def get_favorites(user_id: int) -> list:
                 (user_id,),
             )
             return [dict(r) for r in cur.fetchall()]
+
     return await asyncio.to_thread(_fetch)
 
 
@@ -46,6 +49,7 @@ async def add_favorite(user_id: int, name: str, lat: float, lon: float) -> dict:
                 "INSERT INTO user_favorites (user_id, name, lat, lon) VALUES (%s, %s, %s, %s)",
                 (user_id, name, lat, lon),
             )
+
     await asyncio.to_thread(_insert)
     return {"data": "ok"}
 
@@ -57,4 +61,5 @@ async def delete_favorite(fav_id: int, user_id: int) -> None:
                 "DELETE FROM user_favorites WHERE id = %s AND user_id = %s",
                 (fav_id, user_id),
             )
+
     await asyncio.to_thread(_delete)

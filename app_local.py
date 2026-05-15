@@ -20,7 +20,7 @@ def resolve_place_to_latlon(place_name: str):
     query = (place_name or "").strip() or "台北101"
 
     if not GOOGLE_MAPS_API_KEY:
-        print("⚠️ 警告：未設定環境變數 GEMINI_API_KEY，將跳過 Google Maps 查詢。")
+        print("⚠️ 警告：未設定環境變數 GOOGLE_MAPS_KEY，將跳過 Google Maps 查詢。")
     else:
         try:
             response = requests.get(
@@ -29,7 +29,7 @@ def resolve_place_to_latlon(place_name: str):
                     "address": query,
                     "key": GOOGLE_MAPS_API_KEY,
                     "language": "zh-TW",
-                    "region": "tw"
+                    "region": "tw",
                 },
                 timeout=8,
             )
@@ -85,7 +85,7 @@ async def main():
     else:
         print("Failed to get image bytes.")
 
+
 if __name__ == "__main__":
-    import os
     os.makedirs("output", exist_ok=True)
     asyncio.run(main())

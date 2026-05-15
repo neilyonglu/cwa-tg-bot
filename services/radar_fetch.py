@@ -11,7 +11,9 @@ async def fetch_radar_image(dataset_id: str, force_refresh: bool = False):
     if not force_refresh and dataset_id in _cache:
         img_bytes, timestamp, img_time_str = _cache[dataset_id]
         if time.time() - timestamp < CACHE_TTL:
-            print(f"  [快取命中] {dataset_id} (已快取 {time.time() - timestamp:.0f} 秒)")
+            print(
+                f"  [快取命中] {dataset_id} (已快取 {time.time() - timestamp:.0f} 秒)"
+            )
             return img_bytes, img_time_str
 
     try:

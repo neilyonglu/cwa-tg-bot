@@ -1,7 +1,7 @@
 import os
 import requests
 from telegram import ReplyKeyboardRemove
-from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import CommandHandler, CallbackQueryHandler
 from handlers._utils import send_place_radar
 
 GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
@@ -19,7 +19,12 @@ def resolve_place_to_latlon(place_name: str):
         try:
             response = requests.get(
                 GOOGLE_GEOCODE_URL,
-                params={"address": query, "key": api_key, "language": "zh-TW", "region": "tw"},
+                params={
+                    "address": query,
+                    "key": api_key,
+                    "language": "zh-TW",
+                    "region": "tw",
+                },
                 timeout=8,
             )
             response.raise_for_status()
@@ -71,4 +76,6 @@ async def _handle_action_place(update, context):
 
 def register(app):
     app.add_handler(CommandHandler("place", request_place))
-    app.add_handler(CallbackQueryHandler(_handle_action_place, pattern="^action_place$"))
+    app.add_handler(
+        CallbackQueryHandler(_handle_action_place, pattern="^action_place$")
+    )
