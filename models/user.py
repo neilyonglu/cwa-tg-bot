@@ -16,6 +16,9 @@ async def _ensure_schema():
             cur.execute(
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscribed BOOLEAN DEFAULT FALSE"
             )
+            cur.execute(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_notified_version TEXT"
+            )
     await asyncio.to_thread(_run)
 
 
@@ -61,3 +64,33 @@ async def get_subscribed_user_ids() -> list[int]:
         return await asyncio.to_thread(_fetch)
     except Exception:
         return []
+
+
+async def get_pending_subscribers(version: str) -> list[int]:
+    def _fetch():
+        with _db() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT user_id FROM users"
+                " WHERE subscribed = TRUE"
+                "   AND last_notified_version IS DISTINCT FROM %s",
+                (version,),
+            )
+            return [row[0] for row in cur.fetchall()]
+    try:
+        return await asyncio.to_thread(_fetch)
+    except Exception:
+        return []
+
+
+async def mark_version_notified(user_ids: list[int], version: str) -> None:
+    if not user_ids:
+        return
+
+    def _update():
+        with _db() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET last_notified_version = %s"
+                " WHERE user_id = ANY(%s)",
+                (version, list(user_ids)),
+            )
+    await asyncio.to_thread(_update)
