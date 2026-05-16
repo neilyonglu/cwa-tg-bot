@@ -21,7 +21,7 @@ ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "6501701404")
 # 同一個 CURRENT_VERSION 重複部署不會重發
 CURRENT_VERSION = "v1.1"
 UPDATE_MESSAGE = (
-    "🎉 *降雨機器人更新了！*\n\n"
+    f"🎉 *降雨機器人更新了！({CURRENT_VERSION})*\n\n"
     "✨ *最新功能：*\n"
     "• 🤖 AI 降雨分析：每次查詢自動解讀雷達數據，提供更直觀的降雨描述\n"
     "• ⭐ 喜愛點自訂名稱：儲存地點時可取名為「公司」、「家」等\n"
