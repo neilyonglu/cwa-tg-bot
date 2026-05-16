@@ -1,12 +1,25 @@
 import asyncio
 import sys
 import os
+from datetime import datetime
 import requests
 from dotenv import load_dotenv
-from services.radar_service import RadarService
-from services import llm_service
 
-load_dotenv()
+load_dotenv()  # 必須在任何讀 env 的 module（services.db_conn）import 之前呼叫
+
+from config.settings import RADAR_STATIONS
+from services.radar_service import RadarService
+from services.radar_fetch import fetch_radar_image
+from services import llm_service
+from models.radar_frame import (
+    _ensure_schema as _ensure_radar_schema,
+    save_frame,
+    get_recent_frames,
+    trim_keep_n,
+)
+
+BUFFER_INTERVAL_SEC = 360  # 6 min
+BUFFER_KEEP_N = 5
 
 GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_KEY")
@@ -54,7 +67,38 @@ def resolve_place_to_latlon(place_name: str):
     return None, None, query, "not_found"
 
 
+async def radar_buffer_loop():
+    while True:
+        for station_key, station in RADAR_STATIONS.items():
+            try:
+                img_bytes, img_time_str = await fetch_radar_image(
+                    station["dataset_id"], force_refresh=True
+                )
+                if not img_bytes or img_time_str == "未知時間":
+                    print(f"[buffer] {station_key}: skip (no data / no timestamp)")
+                    continue
+                img_time = datetime.strptime(img_time_str, "%Y-%m-%d %H:%M")
+                inserted = await save_frame(station_key, img_time, img_bytes)
+                trimmed = await trim_keep_n(station_key, keep=BUFFER_KEEP_N)
+                total = len(await get_recent_frames(station_key, limit=BUFFER_KEEP_N + 5))
+                tag = "NEW" if inserted else "DEDUP"
+                print(
+                    f"[buffer] {station_key} {img_time:%Y-%m-%d %H:%M} {tag}"
+                    f" (trimmed {trimmed}, total {total})"
+                )
+            except Exception as exc:
+                print(f"[buffer] {station_key}: error {exc!r}")
+        print(f"[buffer] sleeping {BUFFER_INTERVAL_SEC}s ...")
+        await asyncio.sleep(BUFFER_INTERVAL_SEC)
+
+
 async def main():
+    if "--buffer" in sys.argv:
+        print(f"[buffer] starting — interval {BUFFER_INTERVAL_SEC}s, keep {BUFFER_KEEP_N}/station")
+        await _ensure_radar_schema()
+        await radar_buffer_loop()
+        return
+
     service = RadarService()
     if len(sys.argv) > 1:
         place_name = " ".join(sys.argv[1:]).strip()
