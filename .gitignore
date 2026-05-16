@@ -14,3 +14,6 @@ __pycache__/
 
 # 測試輸出
 output/
+
+# 規劃過渡產物（plan / build skills 的輸出）
+tasks/
