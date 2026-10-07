@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cwa
+      POSTGRES_DB: cwa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未設定}
+      TZ: Asia/Taipei
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cwa -d cwa"]
+      interval: 5s
+      retries: 10
+
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://cwa:${POSTGRES_PASSWORD}@db:5432/cwa
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

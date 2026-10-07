@@ -1,0 +1,9 @@
+.git
+.env
+.venv
+__pycache__
+output
+tasks
+.claude
+*.sql
+*.sql.gz

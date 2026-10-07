@@ -17,3 +17,7 @@ output/
 
 # 規劃過渡產物（plan / build skills 的輸出）
 tasks/
+
+# DB dump
+*.sql
+*.sql.gz

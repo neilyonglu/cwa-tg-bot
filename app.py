@@ -6,6 +6,7 @@ from telegram import BotCommand
 from telegram.ext import Application, MessageHandler, filters
 from models import user as user_model
 from models import favorite as fav_model
+from models import feedback as fb_model
 import handlers.start as h_start
 import handlers.location as h_location
 import handlers.place as h_place
@@ -45,6 +46,7 @@ async def post_init(application: Application):
     await application.bot.set_my_commands(BOT_COMMANDS)
     await user_model._ensure_schema()
     await fav_model._ensure_schema()
+    await fb_model._ensure_schema()
     print("--- 左下角快捷選單已自動同步 ---")
     try:
         await application.bot.send_message(

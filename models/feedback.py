@@ -3,6 +3,21 @@ from psycopg2.extras import RealDictCursor
 from services.db_conn import _db
 
 
+async def _ensure_schema():
+    def _run():
+        with _db() as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS feedback (
+                    id         SERIAL PRIMARY KEY,
+                    user_id    BIGINT NOT NULL,
+                    username   TEXT,
+                    text       TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+    await asyncio.to_thread(_run)
+
+
 async def add_feedback(user_id: int, username: str, text: str) -> None:
     def _insert():
         with _db() as conn, conn.cursor() as cur:
