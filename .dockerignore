@@ -7,3 +7,5 @@ tasks
 .claude
 *.sql
 *.sql.gz
+
+/data/

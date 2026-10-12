@@ -1,6 +1,10 @@
 services:
   db:
-    image: postgres:17
+    image: cwa-tg-db
+    container_name: cwa-tg-db
+    build:
+      context: .
+      dockerfile: Dockerfile.db
     restart: unless-stopped
     environment:
       POSTGRES_USER: cwa
@@ -8,13 +12,15 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未設定}
       TZ: Asia/Taipei
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./data/pg:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cwa -d cwa"]
       interval: 5s
       retries: 10
 
   bot:
+    image: cwa-tg-bot
+    container_name: cwa-tg-bot
     build: .
     restart: unless-stopped
     env_file: .env
@@ -23,6 +29,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-
-volumes:
-  pgdata:
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT', '10000'), timeout=3).close()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
